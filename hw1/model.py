@@ -67,7 +67,17 @@ class DanModel(BaseModel):
         Define the model's parameters, e.g., embedding layer, feedforward layer.
         Pass hyperparameters explicitly or use self.args to access the hyperparameters.
         """
-        raise NotImplementedError()
+
+        #Embedding layer
+        self.emb = nn.Embedding(len(self.vocab), self.args.emb_size, padding_idx=self.vocab.pad_id)
+
+        #Feedforward layers
+        self.fc1 = nn.Linear(self.args.emb_size, self.args.hidden_size)
+        self.fc2 = nn.Linear(self.args.hidden_size, self.tag_size)
+
+        #Activation and Dropout
+        self.activation = nn.ReLU()
+        self.dropout = nn.Dropout(self.args.dropout_rate)
 
     def init_model_parameters(self):
         """
