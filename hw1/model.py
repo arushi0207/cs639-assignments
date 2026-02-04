@@ -39,8 +39,18 @@ def load_embedding(vocab, emb_file, emb_size):
     Return:
         emb: (np.array), embedding matrix of size (|vocab|, emb_size) 
     """
-    raise NotImplementedError()
+    emb = np.zeros((len(vocab), emb_size), dtype=np.float32)
 
+    with open("emb_file", "r", encoding = "utf-8") as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) != emb_size + 1:
+                continue
+            word = parts[0]
+            if word in vocab.word2id:
+                vector = np.array(parts[1:], dtype=np.float32)
+                emb[vocab.word2id[word]] = vector
+    return emb
 
 class DanModel(BaseModel):
     def __init__(self, args, vocab, tag_size):
