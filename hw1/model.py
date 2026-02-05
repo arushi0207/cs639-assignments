@@ -23,7 +23,7 @@ class BaseModel(nn.Module):
     def load(self, path):
         # Load model
         print(f'Loading model from {path}')
-        ckpt = torch.load(path)
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
         self.vocab = ckpt['vocab']
         self.args = ckpt['args']
         self.load_state_dict(ckpt['state_dict'])
@@ -41,7 +41,10 @@ def load_embedding(vocab, emb_file, emb_size):
     """
     emb = np.zeros((len(vocab), emb_size), dtype=np.float32)
 
-    with open("emb_file", "r", encoding = "utf-8") as f:
+    if hasattr(vocab, "pad_id"):
+        emb[vocab.pad_id] = 0.0
+
+    with open(emb_file, "r", encoding = "utf-8") as f:
         for line in f:
             parts = line.strip().split()
             if len(parts) != emb_size + 1:
@@ -70,28 +73,47 @@ class DanModel(BaseModel):
 
         #Embedding layer
         self.emb = nn.Embedding(len(self.vocab), self.args.emb_size, padding_idx=self.vocab.pad_id)
+        self.emb_drop = nn.Dropout(self.args.emb_drop)
 
         #Feedforward layers
-        self.fc1 = nn.Linear(self.args.emb_size, self.args.hidden_size)
-        self.fc2 = nn.Linear(self.args.hidden_size, self.tag_size)
+        self.ff_layers = nn.ModuleList()
+        in_dim = self.args.emb_size
+        for _ in range(self.args.hid_layer):
+            self.ff_layers.append(nn.Linear(in_dim, self.args.hid_size))
+            in_dim = self.args.hid_size
+
+        self.hid_drop = nn.Dropout(self.args.hid_drop)
+        self.fc2 = nn.Linear(in_dim, self.tag_size)
 
         #Activation and Dropout
         self.activation = nn.ReLU()
-        self.dropout = nn.Dropout(self.args.dropout_rate)
 
     def init_model_parameters(self):
         """
         Initialize the model's parameters by uniform sampling from a range [-v, v], e.g., v=0.08
         Pass hyperparameters explicitly or use self.args to access the hyperparameters.
         """
-        raise NotImplementedError()
+        nn.init.uniform_(self.emb.weight, -0.08, 0.08)
+        with torch.no_grad():
+            self.emb.weight[self.vocab.pad_id].fill_(0)
+        
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def copy_embedding_from_numpy(self):
         """
         Load pre-trained word embeddings from numpy.array to nn.embedding
         Pass hyperparameters explicitly or use self.args to access the hyperparameters.
         """
-        raise NotImplementedError()
+        emb_numpy = load_embedding(self.vocab, self.args.emb_file, self.args.emb_size)
+        emb_tensor = torch.from_numpy(emb_numpy)
+
+        with torch.no_grad():
+            self.emb.weight.copy_(emb_tensor)
+            self.emb.weight[self.vocab.pad_id].fill_(0)
 
     def forward(self, x):
         """
@@ -104,4 +126,17 @@ class DanModel(BaseModel):
         Return:
             scores: (torch.FloatTensor), [batch_size, ntags]
         """
-        raise NotImplementedError()
+        emb = self.emb(x)
+        emb = self.emb_drop(emb)
+
+        mask = (x != self.vocab.pad_id).unsqueeze(-1).to(emb.dtype)
+        emb = emb * mask
+
+        avg_emb = emb.sum(dim=1) / mask.sum(dim=1).clamp(min=1)
+        h = avg_emb
+        for layer in self.ff_layers:
+            h = self.activation(layer(h))
+            h = self.hid_drop(h)
+
+        scores = self.fc2(h)
+        return scores
