@@ -39,19 +39,27 @@ def load_embedding(vocab, emb_file, emb_size):
     Return:
         emb: (np.array), embedding matrix of size (|vocab|, emb_size) 
     """
-    emb = np.zeros((len(vocab), emb_size), dtype=np.float32)
+    scale = 0.05
+    emb = np.random.uniform(-scale, scale, size=(len(vocab), emb_size)).astype(np.float32)
 
     if hasattr(vocab, "pad_id"):
         emb[vocab.pad_id] = 0.0
 
-    with open(emb_file, "r", encoding = "utf-8") as f:
+    with open(emb_file, "r", encoding = "utf-8", errors="ignore") as f:
         for line in f:
             parts = line.strip().split()
+            if not parts:
+                continue
+
+            if len(parts) == 2:
+                continue
+
             if len(parts) != emb_size + 1:
                 continue
             word = parts[0]
+
             if word in vocab.word2id:
-                vector = np.array(parts[1:], dtype=np.float32)
+                vector = np.asarray(parts[1:], dtype=np.float32)
                 emb[vocab.word2id[word]] = vector
     return emb
 
@@ -85,8 +93,11 @@ class DanModel(BaseModel):
         self.hid_drop = nn.Dropout(self.args.hid_drop)
         self.fc2 = nn.Linear(in_dim, self.tag_size)
 
-        #Activation and Dropout
-        self.activation = nn.ReLU()
+        #Activation
+        if self.tag_size == 2:
+            self.activation = nn.ReLU()
+        else:
+            self.activation = nn.GELU()
 
     def init_model_parameters(self):
         """
